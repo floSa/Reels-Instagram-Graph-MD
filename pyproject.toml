@@ -13,6 +13,8 @@ reels-ingest = "reels_graph_md.ingest:main"
 reels-mailler = "reels_graph_md.mailler:main"
 reels-verifier = "reels_graph_md.verifier:main"
 reels-enrichir = "reels_graph_md.enrichir:main"
+reels-chercher = "reels_graph_md.chercher:main"
+reels-carte = "reels_graph_md.carte:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0"]

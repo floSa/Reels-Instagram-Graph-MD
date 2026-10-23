@@ -52,6 +52,9 @@ vault Obsidian lui-même ; le seul état structuré est `journal.json`.
 | [`ingest.py`](src/reels_graph_md/ingest.py) | Orchestration — commande `reels-ingest` |
 | [`mailler.py`](src/reels_graph_md/mailler.py) | Notes de thème et d'entité — commande `reels-mailler` |
 | [`verifier.py`](src/reels_graph_md/verifier.py) | Audit et réparation du vault — commande `reels-verifier` |
+| [`index.py`](src/reels_graph_md/index.py) | Index SQLite dérivé des fiches (`graphe.db`), recherche plein texte FTS5 |
+| [`chercher.py`](src/reels_graph_md/chercher.py) | Recherche dans la parole, avec l'horodatage du passage — commande `reels-chercher` |
+| [`carte.py`](src/reels_graph_md/carte.py) | Carte d'un domaine (entités typées, comptes, chronologie) — commande `reels-carte` |
 
 ```mermaid
 flowchart LR
@@ -120,6 +123,12 @@ uv run reels-mailler --vault ~/Vault
 
 # audit : le journal concorde-t-il avec le disque ?
 uv run reels-verifier --vault ~/Vault
+
+# chercher dans ce qui est dit, avec l'horodatage du passage
+uv run reels-chercher "Marc Bloch Gestapo" --vault ~/Vault --domaine politique
+
+# la carte d'un domaine : entités par type, comptes, chronologie
+uv run reels-carte politique --vault ~/Vault
 ```
 
 Marche à suivre complète : [docs/GUIDE.md](docs/GUIDE.md).
@@ -191,7 +200,7 @@ Codes de sortie de `reels-ingest` : `0` terminé, `2` fichier d'export introuvab
 uv run pytest
 ```
 
-**113 tests** sur les fonctions pures : extraction et normalisation des liens,
+**126 tests** sur les fonctions pures : extraction et normalisation des liens,
 déduplication native, audit et réparation du vault, boîte de réception,
 échappement YAML, évaluation de fiabilité, maillage et son idempotence. Les étapes
 réseau ne sont pas testées automatiquement — voir
