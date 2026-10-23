@@ -257,7 +257,7 @@ Codes de sortie de `reels-ingest` : `0` terminé, `2` fichier d'export introuvab
 uv run pytest
 ```
 
-**153 tests** sur les fonctions pures : extraction et normalisation des liens,
+**151 tests** sur les fonctions pures : extraction et normalisation des liens,
 déduplication native, audit et réparation du vault, boîte de réception,
 échappement YAML, évaluation de fiabilité, maillage et son idempotence. Les étapes
 réseau ne sont pas testées automatiquement — voir
