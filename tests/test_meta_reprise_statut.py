@@ -208,3 +208,31 @@ class TestLive:
         with pytest.raises(live.ErreurLive, match="429"):
             live.lire_collection("1", {"sessionid": "x"}, pause=0, ouvrir=refuse)
         assert len(appels) == 1
+
+
+# Structure réelle de saved_collections.json, relevée dans un importeur écrit contre
+# un vrai export (danfox127-dotcom/TikTokAnalyzer) : nom dans label_values, reels dans un groupe « Media ».
+def collection_reelle(libelle_nom):
+    return [
+        {
+            "timestamp": 1785605461,
+            "media": [],
+            "label_values": [
+                {"label": libelle_nom, "value": "politique"},
+                {
+                    "title": "Media",
+                    "dict": [
+                        {"dict": [{"label": "URL", "value": "https://www.instagram.com/reel/AAA111/", "href": "https://www.instagram.com/reel/AAA111/"}]},
+                        {"dict": [{"label": "URL", "value": "https://www.instagram.com/reel/BBB222/"}, {"label": libelle_nom, "value": "un_compte"}]},
+                    ],
+                },
+            ],
+        }
+    ]
+
+
+@pytest.mark.parametrize("libelle", ["Name", "Nom"])
+def test_structure_reelle_de_saved_collections(tmp_path, libelle):
+    deposer(tmp_path, collection_reelle(libelle))
+    urls, _ = meta.liens_de_collection(tmp_path, "Politique")
+    assert urls == ["https://instagram.com/reel/AAA111", "https://instagram.com/reel/BBB222"]
