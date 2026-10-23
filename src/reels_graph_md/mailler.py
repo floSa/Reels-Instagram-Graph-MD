@@ -171,25 +171,12 @@ def poser_liens(f: dict) -> bool:
     return True
 
 
-def main() -> int:
-    parseur = argparse.ArgumentParser(
-        prog="reels-mailler",
-        description="Génère les notes de thème et d'entité du vault, et pose les wikilinks.",
-    )
-    parseur.add_argument("--vault", default=str(Path.home() / "Vault"))
-    args = parseur.parse_args()
+def mailler(vault: Path) -> tuple[int, int, int, int, int]:
+    """Génère les notes de thème et d'entité et pose les liens.
 
-    vault = Path(args.vault).expanduser()
-    dossier_fiches = vault / "fiches"
-    if not dossier_fiches.is_dir():
-        print(f"Aucun dossier de fiches dans {vault}.", file=sys.stderr)
-        return 2
-
-    fiches = collecter(dossier_fiches)
-    if not fiches:
-        print(f"Aucune fiche dans {dossier_fiches}.", file=sys.stderr)
-        return 2
-
+    Retourne (fiches lues, thèmes, entités, fiches modifiées, fiches sans métadonnées).
+    """
+    fiches = collecter(vault / "fiches")
     par_theme: dict[str, list[dict]] = defaultdict(list)
     par_entite: dict[str, list[dict]] = defaultdict(list)
     for f in fiches:
@@ -205,9 +192,30 @@ def main() -> int:
 
     modifiees = sum(1 for f in fiches if poser_liens(f))
     sans_metadonnees = sum(1 for f in fiches if not f["themes"] and not f["entites"])
+    return len(fiches), len(par_theme), len(par_entite), modifiees, sans_metadonnees
 
-    print(f"{len(fiches)} fiches lues.")
-    print(f"{len(par_theme)} thèmes, {len(par_entite)} entités.")
+
+def main() -> int:
+    parseur = argparse.ArgumentParser(
+        prog="reels-mailler",
+        description="Génère les notes de thème et d'entité du vault, et pose les wikilinks.",
+    )
+    parseur.add_argument("--vault", default=str(Path.home() / "Vault"))
+    args = parseur.parse_args()
+
+    vault = Path(args.vault).expanduser()
+    dossier_fiches = vault / "fiches"
+    if not dossier_fiches.is_dir():
+        print(f"Aucun dossier de fiches dans {vault}.", file=sys.stderr)
+        return 2
+
+    if not any(dossier_fiches.glob("*.md")):
+        print(f"Aucune fiche dans {dossier_fiches}.", file=sys.stderr)
+        return 2
+
+    lues, themes, entites, modifiees, sans_metadonnees = mailler(vault)
+    print(f"{lues} fiches lues.")
+    print(f"{themes} thèmes, {entites} entités.")
     print(f"{modifiees} fiches mises à jour.")
     if sans_metadonnees:
         print(
@@ -215,7 +223,6 @@ def main() -> int:
             "elles n'ont pas encore été enrichies (étape 8)."
         )
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

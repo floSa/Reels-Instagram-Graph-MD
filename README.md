@@ -52,6 +52,10 @@ vault Obsidian lui-même ; le seul état structuré est `journal.json`.
 | [`ingest.py`](src/reels_graph_md/ingest.py) | Orchestration — commande `reels-ingest` |
 | [`mailler.py`](src/reels_graph_md/mailler.py) | Notes de thème et d'entité — commande `reels-mailler` |
 | [`verifier.py`](src/reels_graph_md/verifier.py) | Audit et réparation du vault — commande `reels-verifier` |
+| [`sync.py`](src/reels_graph_md/sync.py) | **Point d'entrée d'un vault thématique** : lit la collection, reprend l'existant, traite le manquant — commande `reels-sync` |
+| [`meta.py`](src/reels_graph_md/meta.py) | Lecture des collections d'enregistrés dans l'export Meta (dossier ou zip) |
+| [`reprise.py`](src/reels_graph_md/reprise.py) | Réutilise fiches et vidéos d'un ancien vault, sans écraser |
+| [`statut.py`](src/reels_graph_md/statut.py) | Tableau de bord et prochaines actions — commande `reels-statut`, écrit `STATUT.md` |
 | [`index.py`](src/reels_graph_md/index.py) | Index SQLite dérivé des fiches (`graphe.db`), recherche plein texte FTS5 |
 | [`chercher.py`](src/reels_graph_md/chercher.py) | Recherche dans la parole, avec l'horodatage du passage — commande `reels-chercher` |
 | [`carte.py`](src/reels_graph_md/carte.py) | Carte d'un domaine (entités typées, comptes, chronologie) — commande `reels-carte` |
@@ -160,6 +164,33 @@ simple `docker stop` étant annulé par la politique de redémarrage. Le contene
 occupe le **port 8000** et, en mode GPU, la mémoire vidéo du modèle — le couper
 est utile avant tout autre travail sur GPU.
 
+## Vault thématique (le chemin simple)
+
+Un vault par thème, alimenté par une **collection d'enregistrés** (ex. « politique »).
+
+```bash
+# premier lancement : tout est mémorisé dans <vault>/theme.json
+uv run reels-sync --vault ~/Documents/Vault-Politique \
+    --collection politique --export ~/reels-exports \
+    --reprendre-de ~/Documents/ReelsVault --cookies firefox
+
+# ensuite, après chaque nouvel export Meta déposé dans ~/reels-exports
+uv run reels-sync --vault ~/Documents/Vault-Politique --cookies firefox
+
+# où on en est, sans rien lancer (écrit aussi STATUT.md dans le vault)
+uv run reels-statut --vault ~/Documents/Vault-Politique
+```
+
+À chaque `reels-sync` : lecture de la collection dans l'export (dossier ou zip,
+tel que Meta le livre) → reprise de ce qui est déjà traité dans l'ancien vault →
+téléchargement et transcription **des seuls reels manquants** (doublons écartés
+par le journal, par URL canonique puis par identifiant natif) → maillage → statut.
+
+**L'export Meta est le seul point d'entrée** : il n'existe pas d'API pour les
+enregistrés. Il faut cocher les enregistrés **et leurs collections** (le fichier
+`saved_collections.json`). Meta propose un export récurrent (Centre des comptes →
+Exporter vos informations), à déposer ensuite dans le dossier d'exports.
+
 ## Configuration
 
 Options de `reels-ingest` :
@@ -200,7 +231,7 @@ Codes de sortie de `reels-ingest` : `0` terminé, `2` fichier d'export introuvab
 uv run pytest
 ```
 
-**126 tests** sur les fonctions pures : extraction et normalisation des liens,
+**141 tests** sur les fonctions pures : extraction et normalisation des liens,
 déduplication native, audit et réparation du vault, boîte de réception,
 échappement YAML, évaluation de fiabilité, maillage et son idempotence. Les étapes
 réseau ne sont pas testées automatiquement — voir
@@ -345,9 +376,8 @@ sont retentés à chaque relance.
   mais on ne peut pas compter dessus.
 - **Instagram rate-limite sévèrement** : procéder par lots de ~50 étalés sur
   plusieurs jours.
-- **Instagram et TikTok sont validés sur un stock réel** (293 reels, zéro échec).
-  Facebook reste à éprouver : ni son export ni son téléchargement n'ont été
-  confrontés à des données réelles.
+- **Instagram, TikTok et Facebook sont validés sur un stock réel** (340 fiches
+  dans le vault d'origine : 293 Instagram, 47 Facebook).
 - **Les exports doivent rester disponibles.** La liste de travail est recalculée
   à chaque lancement ; le journal enregistre ce qui est fait, pas ce qui reste.
 - **L'étape 8 reste manuelle** — c'est la seule qui consomme du quota. Elle est

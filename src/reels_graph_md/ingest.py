@@ -177,6 +177,95 @@ def _traiter(
         shutil.rmtree(temp, ignore_errors=True)
 
 
+def traiter_lot(
+    a_faire: list[str],
+    vault: Path,
+    dossiers: dict[str, Path],
+    carnet: Journal,
+    *,
+    cookies: str | None,
+    langue: str,
+    pause: float,
+    lire_inbox: bool,
+) -> int:
+    """Télécharge, transcrit et écrit les fiches de `a_faire`. Code de sortie de la commande."""
+    ytdlp.verifier_outils()
+
+    if not moteur.serveur_disponible():
+        log(f"Serveur Whisper injoignable sur {moteur.url_serveur()}.")
+        log("Démarre-le avec claude-skills/local-whisper/speaches-up.sh, puis relance.")
+        return 3
+
+    reussites, echecs, alias, impossibles = 0, 0, 0, 0
+    consecutifs, interrompu = 0, False
+    fiabilites: dict[str, int] = {}
+
+    for numero, url in enumerate(a_faire, 1):
+        log(f"[{numero}/{len(a_faire)}] {url}")
+        try:
+            details = _traiter(url, dossiers, carnet, cookies, langue)
+            consecutifs = 0
+            if details.get("impossible"):
+                carnet.impossible(url, f"{details['genre']} — {details['impossible']}")
+                impossibles += 1
+                log(f"    hors d'atteinte : {details['genre']}, ne sera plus retenté")
+                if numero < len(a_faire):
+                    time.sleep(pause)
+                continue
+            carnet.succes(url, **details)
+            reussites += 1
+            if details.get("alias_de"):
+                alias += 1
+                log(f"    doublon — même reel que {details['alias_de']}, rien téléchargé")
+            else:
+                niveau = details.get("fiabilite", "?")
+                fiabilites[niveau] = fiabilites.get(niveau, 0) + 1
+                log(f"    ok — {details['fiche']} (fiabilité : {niveau})")
+        except KeyboardInterrupt:
+            log("Interrompu. Le journal est à jour, relance pour reprendre.")
+            return 130
+        except Exception as erreur:  # noqa: BLE001 — un reel raté n'arrête pas le lot
+            log(f"    échec : {erreur}")
+            carnet.echec(url, str(erreur))
+            echecs += 1
+            consecutifs += 1
+            if consecutifs >= ECHECS_CONSECUTIFS_MAX:
+                log(f"{consecutifs} échecs consécutifs — arrêt du lot.")
+                log("Signature d'un rate-limit, d'une session expirée ou du serveur")
+                log("de transcription tombé. Attends, vérifie, puis relance : le")
+                log("journal reprendra exactement ici.")
+                interrompu = True
+                break
+
+        if numero < len(a_faire):
+            time.sleep(pause)
+
+    if lire_inbox:
+        # Relecture de l'inbox au moment de l'archivage, jamais réécriture depuis
+        # ce qu'on avait lu au départ : le raccourci mobile a pu y ajouter des
+        # URLs pendant que le lot tournait.
+        archivees = inbox.consommer(vault, {u for u in a_faire if carnet.est_fait(u)})
+        if archivees:
+            log(f"{archivees} ligne(s) déplacée(s) vers {inbox.NOM_ARCHIVE}.")
+
+    log(f"Terminé — {reussites} réussites, {echecs} échecs.")
+    if impossibles:
+        log(f"Dont {impossibles} post(s) hors d'atteinte, retirés de la file.")
+    if alias:
+        log(f"Dont {alias} doublons détectés après résolution : aucun téléchargement refait.")
+    if fiabilites:
+        detail = ", ".join(f"{n} {niveau}" for niveau, n in sorted(fiabilites.items()))
+        log(f"Fiabilité des fiches : {detail}")
+    if fiabilites.get("vide") or fiabilites.get("legende_seule"):
+        log("Les fiches `vide` / `legende_seule` n'ont pas de contenu parlé exploitable.")
+    log(f"Fiches : {dossiers['fiches']}")
+    if echecs:
+        log("Relance la même commande pour retenter uniquement les échecs.")
+
+    return 4 if interrompu else 0
+
+
+
 def main() -> int:
     parseur = argparse.ArgumentParser(
         prog="reels-ingest",
@@ -244,80 +333,16 @@ def main() -> int:
             print(f"{liens.identifiant(url):32s}  {url}")
         return 0
 
-    ytdlp.verifier_outils()
-
-    if not moteur.serveur_disponible():
-        log(f"Serveur Whisper injoignable sur {moteur.url_serveur()}.")
-        log("Démarre-le avec claude-skills/local-whisper/speaches-up.sh, puis relance.")
-        return 3
-
-    reussites, echecs, alias, impossibles = 0, 0, 0, 0
-    consecutifs, interrompu = 0, False
-    fiabilites: dict[str, int] = {}
-
-    for numero, url in enumerate(a_faire, 1):
-        log(f"[{numero}/{len(a_faire)}] {url}")
-        try:
-            details = _traiter(url, dossiers, carnet, args.cookies, args.langue)
-            consecutifs = 0
-            if details.get("impossible"):
-                carnet.impossible(url, f"{details['genre']} — {details['impossible']}")
-                impossibles += 1
-                log(f"    hors d'atteinte : {details['genre']}, ne sera plus retenté")
-                if numero < len(a_faire):
-                    time.sleep(args.pause)
-                continue
-            carnet.succes(url, **details)
-            reussites += 1
-            if details.get("alias_de"):
-                alias += 1
-                log(f"    doublon — même reel que {details['alias_de']}, rien téléchargé")
-            else:
-                niveau = details.get("fiabilite", "?")
-                fiabilites[niveau] = fiabilites.get(niveau, 0) + 1
-                log(f"    ok — {details['fiche']} (fiabilité : {niveau})")
-        except KeyboardInterrupt:
-            log("Interrompu. Le journal est à jour, relance pour reprendre.")
-            return 130
-        except Exception as erreur:  # noqa: BLE001 — un reel raté n'arrête pas le lot
-            log(f"    échec : {erreur}")
-            carnet.echec(url, str(erreur))
-            echecs += 1
-            consecutifs += 1
-            if consecutifs >= ECHECS_CONSECUTIFS_MAX:
-                log(f"{consecutifs} échecs consécutifs — arrêt du lot.")
-                log("Signature d'un rate-limit, d'une session expirée ou du serveur")
-                log("de transcription tombé. Attends, vérifie, puis relance : le")
-                log("journal reprendra exactement ici.")
-                interrompu = True
-                break
-
-        if numero < len(a_faire):
-            time.sleep(args.pause)
-
-    if not args.sans_inbox:
-        # Relecture de l'inbox au moment de l'archivage, jamais réécriture depuis
-        # ce qu'on avait lu au départ : le raccourci mobile a pu y ajouter des
-        # URLs pendant que le lot tournait.
-        archivees = inbox.consommer(vault, {u for u in a_faire if carnet.est_fait(u)})
-        if archivees:
-            log(f"{archivees} ligne(s) déplacée(s) vers {inbox.NOM_ARCHIVE}.")
-
-    log(f"Terminé — {reussites} réussites, {echecs} échecs.")
-    if impossibles:
-        log(f"Dont {impossibles} post(s) hors d'atteinte, retirés de la file.")
-    if alias:
-        log(f"Dont {alias} doublons détectés après résolution : aucun téléchargement refait.")
-    if fiabilites:
-        detail = ", ".join(f"{n} {niveau}" for niveau, n in sorted(fiabilites.items()))
-        log(f"Fiabilité des fiches : {detail}")
-    if fiabilites.get("vide") or fiabilites.get("legende_seule"):
-        log("Les fiches `vide` / `legende_seule` n'ont pas de contenu parlé exploitable.")
-    log(f"Fiches : {dossiers['fiches']}")
-    if echecs:
-        log("Relance la même commande pour retenter uniquement les échecs.")
-
-    return 4 if interrompu else 0
+    return traiter_lot(
+        a_faire,
+        vault,
+        dossiers,
+        carnet,
+        cookies=args.cookies,
+        langue=args.langue,
+        pause=args.pause,
+        lire_inbox=not args.sans_inbox,
+    )
 
 
 if __name__ == "__main__":
