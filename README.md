@@ -186,7 +186,13 @@ tel que Meta le livre) → reprise de ce qui est déjà traité dans l'ancien va
 téléchargement et transcription **des seuls reels manquants** (doublons écartés
 par le journal, par URL canonique puis par identifiant natif) → maillage → statut.
 
-**L'export Meta est le seul point d'entrée** : il n'existe pas d'API pour les
+**Lecture en direct (sans attendre l'export).** Ouvre la collection dans Instagram (web)
+et copie son URL `instagram.com/<compte>/saved/<nom>/<identifiant>/` :
+`reels-sync --vault ... --collection-url <URL> --cookies firefox`. La session Firefox est
+lue, la collection paginée avec une pause de 3 s ; sur un 429 Instagram, on s'arrête
+sans insister. L'export prend le relais si la lecture échoue.
+
+**L'export Meta reste le chemin officiel** : il n'existe pas d'API pour les
 enregistrés. Il faut cocher les enregistrés **et leurs collections** (le fichier
 `saved_collections.json`). Meta propose un export récurrent (Centre des comptes →
 Exporter vos informations), à déposer ensuite dans le dossier d'exports.
@@ -231,7 +237,7 @@ Codes de sortie de `reels-ingest` : `0` terminé, `2` fichier d'export introuvab
 uv run pytest
 ```
 
-**141 tests** sur les fonctions pures : extraction et normalisation des liens,
+**144 tests** sur les fonctions pures : extraction et normalisation des liens,
 déduplication native, audit et réparation du vault, boîte de réception,
 échappement YAML, évaluation de fiabilité, maillage et son idempotence. Les étapes
 réseau ne sont pas testées automatiquement — voir

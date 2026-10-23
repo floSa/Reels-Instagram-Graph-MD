@@ -26,7 +26,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import index, ingest, reprise
+from . import index, ingest, live, reprise, ytdlp
 from .ingest import log
 from .journal import Journal
 from .mailler import mailler
@@ -43,15 +43,44 @@ def fusionner_config(vault: Path, args: argparse.Namespace) -> dict:
     for cle, valeur in (
         ("collection", args.collection),
         ("export", args.export),
+        ("collection_id", args.collection_url),
         ("reprendre_de", args.reprendre_de),
         ("themes", [t.strip() for t in args.themes.split(",")] if args.themes else None),
     ):
         if valeur:
-            config[cle] = valeur
+            config[cle] = live.identifiant_collection(valeur) if cle == "collection_id" else valeur
     config.setdefault("themes", list(index.DOMAINES.get(config.get("collection", ""), ())))
     config.setdefault("export", str(EXPORT_DEFAUT))
     (vault / "theme.json").write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
     return config
+
+
+def lire_en_direct(vault: Path, config: dict) -> list[str]:
+    """Collection lue en direct avec la session Firefox. Liste vide si impossible (l'export prend le relais)."""
+    profils = ytdlp.profils_firefox_windows() if ytdlp.sous_wsl() else []
+    try:
+        if not profils:
+            raise live.ErreurLive("Aucun profil Firefox trouvé pour lire la session Instagram.")
+        urls = live.lire_collection(config["collection_id"], live.cookies_firefox(profils[0]))
+    except live.ErreurLive as erreur:
+        log(f"Lecture en direct : {erreur}")
+        return []
+    (vault / "cible.json").write_text(
+        json.dumps(
+            {
+                "collection": config["collection"],
+                "urls": urls,
+                "export": "lecture en direct",
+                "dernier_enregistrement": datetime.now().isoformat(timespec="minutes"),
+                "lu_le": datetime.now().isoformat(timespec="minutes"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    log(f"Collection « {config['collection']} » lue en direct : {len(urls)} reels.")
+    return urls
 
 
 def lire_cible(vault: Path, config: dict) -> list[str]:
@@ -60,6 +89,11 @@ def lire_cible(vault: Path, config: dict) -> list[str]:
     Si l'export est illisible ou sans collection, on garde la cible mémorisée :
     l'erreur est affichée mais ne bloque pas le reste.
     """
+    if config.get("collection_id"):
+        urls = lire_en_direct(vault, config)
+        if urls:
+            return urls
+
     export = Path(config["export"]).expanduser()
     try:
         urls, _ = liens_de_collection(export, config["collection"])
@@ -94,6 +128,11 @@ def main() -> int:
     parseur.add_argument("--vault", required=True, help="vault thématique (créé s'il n'existe pas)")
     parseur.add_argument("--collection", help="nom de la collection d'enregistrés (mémorisé)")
     parseur.add_argument("--export", help=f"dossier ou zip de l'export Meta (défaut : {EXPORT_DEFAUT})")
+    parseur.add_argument(
+        "--collection-url",
+        help="URL de la collection ouverte dans Instagram (instagram.com/<compte>/saved/<nom>/<id>/) : "
+        "lecture en direct, sans attendre l'export",
+    )
     parseur.add_argument("--reprendre-de", dest="reprendre_de", help="ancien vault dont réutiliser les reels déjà traités")
     parseur.add_argument("--themes", help="thèmes à reprendre de l'ancien vault, séparés par des virgules")
     parseur.add_argument("--cookies", default=None, help="navigateur (firefox) ou cookies.txt, requis pour télécharger")

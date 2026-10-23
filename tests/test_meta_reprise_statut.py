@@ -158,3 +158,53 @@ class TestStatut:
         s = statut.calculer(tmp_path)
         s["cible_connue"] = True
         assert statut.prochaines_actions(s, tmp_path) == ["Rien à faire : le vault est à jour avec l'export."]
+
+
+class TestLive:
+    def test_identifiant_depuis_l_url(self):
+        from reels_graph_md import live
+
+        assert live.identifiant_collection("https://www.instagram.com/moi/saved/politique/17912345678901234/") == "17912345678901234"
+        assert live.identifiant_collection("123") == "123"
+        with pytest.raises(live.ErreurLive):
+            live.identifiant_collection("https://www.instagram.com/moi/")
+
+    def test_pagination_et_forme_des_urls(self):
+        import io
+
+        from reels_graph_md import live
+
+        pages = iter(
+            [
+                {"items": [{"media": {"code": "AAA", "product_type": "clips"}}], "more_available": True, "next_max_id": "9"},
+                {"items": [{"media": {"code": "BBB", "product_type": "feed"}}, {"media": {"code": "AAA", "product_type": "clips"}}]},
+            ]
+        )
+
+        class Reponse(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def faux_ouvrir(requete, timeout):
+            return Reponse(json.dumps(next(pages)).encode())
+
+        urls = live.lire_collection("1", {"sessionid": "x"}, pause=0, ouvrir=faux_ouvrir)
+        assert urls == ["https://instagram.com/reel/AAA", "https://instagram.com/p/BBB"]
+
+    def test_429_s_arrete_sans_insister(self):
+        import urllib.error
+
+        from reels_graph_md import live
+
+        appels = []
+
+        def refuse(requete, timeout):
+            appels.append(1)
+            raise urllib.error.HTTPError(requete.full_url, 429, "Too Many", {}, None)
+
+        with pytest.raises(live.ErreurLive, match="429"):
+            live.lire_collection("1", {"sessionid": "x"}, pause=0, ouvrir=refuse)
+        assert len(appels) == 1
