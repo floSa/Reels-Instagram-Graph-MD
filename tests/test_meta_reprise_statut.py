@@ -160,6 +160,26 @@ class TestStatut:
         assert statut.prochaines_actions(s, tmp_path) == ["Rien à faire : le vault est à jour avec l'export."]
 
 
+class Reponse:
+    def __init__(self, donnees):
+        import io
+
+        self.flux = io.BytesIO(json.dumps(donnees).encode())
+
+    def read(self, *a):
+        return self.flux.read(*a)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def media(code, collections, produit="clips", auteur="un_compte"):
+    return {"media": {"code": code, "product_type": produit, "saved_collection_ids": collections, "user": {"username": auteur}, "caption": {"text": "légende " + code}}}
+
+
 class TestLive:
     def test_identifiant_depuis_l_url(self):
         from reels_graph_md import live
@@ -169,30 +189,34 @@ class TestLive:
         with pytest.raises(live.ErreurLive):
             live.identifiant_collection("https://www.instagram.com/moi/")
 
-    def test_pagination_et_forme_des_urls(self):
-        import io
-
+    def test_lit_les_collections_de_chaque_enregistrement(self):
         from reels_graph_md import live
 
         pages = iter(
             [
-                {"items": [{"media": {"code": "AAA", "product_type": "clips"}}], "more_available": True, "next_max_id": "9"},
-                {"items": [{"media": {"code": "BBB", "product_type": "feed"}}, {"media": {"code": "AAA", "product_type": "clips"}}]},
+                {"items": [media("AAA", ["11"]), media("BBB", [], "feed")], "more_available": True, "next_max_id": "9"},
+                {"items": [media("AAA", ["11"]), media("CCC", ["11", "22"])]},
             ]
         )
+        trouves = live.lire_enregistres({"sessionid": "x"}, pause=0, ouvrir=lambda r, timeout: Reponse(next(pages)))
+        assert [(e["url"], e["collections"]) for e in trouves] == [
+            ("https://instagram.com/reel/AAA", ["11"]),
+            ("https://instagram.com/p/BBB", []),
+            ("https://instagram.com/reel/CCC", ["11", "22"]),
+        ]
+        assert trouves[0]["auteur"] == "un_compte"
 
-        class Reponse(io.BytesIO):
-            def __enter__(self):
-                return self
+    def test_incremental_s_arrete_a_la_premiere_page_sans_nouveaute(self):
+        from reels_graph_md import live
 
-            def __exit__(self, *a):
-                return False
+        appels = []
 
-        def faux_ouvrir(requete, timeout):
-            return Reponse(json.dumps(next(pages)).encode())
+        def ouvrir(requete, timeout):
+            appels.append(requete.full_url)
+            return Reponse({"items": [media("AAA", ["11"])], "more_available": True, "next_max_id": "9"})
 
-        urls = live.lire_collection("1", {"sessionid": "x"}, pause=0, ouvrir=faux_ouvrir)
-        assert urls == ["https://instagram.com/reel/AAA", "https://instagram.com/p/BBB"]
+        trouves = live.lire_enregistres({"sessionid": "x"}, connus={"https://instagram.com/reel/AAA"}, pause=0, ouvrir=ouvrir)
+        assert len(appels) == 1 and len(trouves) == 1
 
     def test_429_s_arrete_sans_insister(self):
         import urllib.error
@@ -206,8 +230,31 @@ class TestLive:
             raise urllib.error.HTTPError(requete.full_url, 429, "Too Many", {}, None)
 
         with pytest.raises(live.ErreurLive, match="429"):
-            live.lire_collection("1", {"sessionid": "x"}, pause=0, ouvrir=refuse)
+            live.lire_enregistres({"sessionid": "x"}, pause=0, ouvrir=refuse)
         assert len(appels) == 1
+
+
+class TestSync:
+    def test_aligner_garde_la_forme_deja_connue(self):
+        from reels_graph_md import sync
+
+        connus = {"AAA": "https://instagram.com/p/AAA"}
+        assert sync.aligner(["https://instagram.com/reel/AAA", "https://instagram.com/reel/ZZZ"], connus) == [
+            "https://instagram.com/p/AAA",
+            "https://instagram.com/reel/ZZZ",
+        ]
+
+    def test_description_des_collections(self):
+        from reels_graph_md import sync
+
+        magasin = {
+            "https://instagram.com/reel/AAA": {"collections": ["11"], "auteur": "x", "legende": "vote à l'Assemblée"},
+            "https://instagram.com/reel/BBB": {"collections": ["11"], "auteur": "x", "legende": "autre"},
+            "https://instagram.com/reel/CCC": {"collections": [], "auteur": "y", "legende": "rien"},
+        }
+        texte = sync.decrire_collections(magasin, {"AAA"})
+        assert "Collection 11 — 2 reels, dont 1 déjà dans ce vault" in texte
+        assert "1 hors collection" in texte
 
 
 # Structure réelle de saved_collections.json, relevée dans un importeur écrit contre
@@ -236,3 +283,34 @@ def test_structure_reelle_de_saved_collections(tmp_path, libelle):
     deposer(tmp_path, collection_reelle(libelle))
     urls, _ = meta.liens_de_collection(tmp_path, "Politique")
     assert urls == ["https://instagram.com/reel/AAA111", "https://instagram.com/reel/BBB222"]
+
+
+class TestRecolte:
+    def test_ajoute_les_nouveaux_et_ecrit_les_fichiers(self, tmp_path, monkeypatch):
+        from reels_graph_md import live, recolte
+
+        monkeypatch.setattr(recolte, "session_instagram", lambda: {})
+        (tmp_path / "collections.json").write_text('{"11": "politique"}', encoding="utf-8")
+        lus = [
+            {"url": "https://instagram.com/reel/AAA", "collections": ["11"], "auteur": "x", "legende": "l"},
+            {"url": "https://instagram.com/p/BBB", "collections": [], "auteur": "y", "legende": ""},
+        ]
+        nouveaux, erreur = recolte.recolter(tmp_path, aujourdhui="2026-10-23", lire=lambda c, connus: lus)
+        assert len(nouveaux) == 2 and erreur is None
+        assert "politique" in (tmp_path / "enregistres.csv").read_text(encoding="utf-8-sig")
+        assert "[politique] https://instagram.com/reel/AAA" in (tmp_path / "nouveaux.md").read_text(encoding="utf-8")
+
+        nouveaux, _ = recolte.recolter(tmp_path, aujourdhui="2026-10-30", lire=lambda c, connus: lus)
+        assert nouveaux == []  # rien de nouveau, et vu_le garde la première date
+        assert json.loads((tmp_path / "enregistres.json").read_text(encoding="utf-8"))["https://instagram.com/reel/AAA"]["vu_le"] == "2026-10-23"
+
+    def test_un_429_conserve_ce_qui_a_ete_lu(self, tmp_path, monkeypatch):
+        from reels_graph_md import live, recolte
+
+        monkeypatch.setattr(recolte, "session_instagram", lambda: {})
+
+        def lire(cookies, connus):
+            raise live.ErreurLive("429", [{"url": "https://instagram.com/reel/AAA", "collections": ["11"], "auteur": "x", "legende": ""}])
+
+        nouveaux, erreur = recolte.recolter(tmp_path, lire=lire)
+        assert nouveaux == ["https://instagram.com/reel/AAA"] and erreur == "429"

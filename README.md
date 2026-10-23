@@ -52,6 +52,8 @@ vault Obsidian lui-même ; le seul état structuré est `journal.json`.
 | [`ingest.py`](src/reels_graph_md/ingest.py) | Orchestration — commande `reels-ingest` |
 | [`mailler.py`](src/reels_graph_md/mailler.py) | Notes de thème et d'entité — commande `reels-mailler` |
 | [`verifier.py`](src/reels_graph_md/verifier.py) | Audit et réparation du vault — commande `reels-verifier` |
+| [`recolte.py`](src/reels_graph_md/recolte.py) | URL des reels enregistrés + collections, en direct, hebdomadaire — commande `reels-urls` |
+| [`live.py`](src/reels_graph_md/live.py) | Lecture des enregistrements Instagram avec la session Firefox |
 | [`sync.py`](src/reels_graph_md/sync.py) | **Point d'entrée d'un vault thématique** : lit la collection, reprend l'existant, traite le manquant — commande `reels-sync` |
 | [`meta.py`](src/reels_graph_md/meta.py) | Lecture des collections d'enregistrés dans l'export Meta (dossier ou zip) |
 | [`reprise.py`](src/reels_graph_md/reprise.py) | Réutilise fiches et vidéos d'un ancien vault, sans écraser |
@@ -164,6 +166,24 @@ simple `docker stop` étant annulé par la politique de redémarrage. Le contene
 occupe le **port 8000** et, en mode GPU, la mémoire vidéo du modèle — le couper
 est utile avant tout autre travail sur GPU.
 
+## Récolte hebdomadaire des URL et de leurs collections (le point de départ)
+
+```bash
+uv run reels-urls --dossier ~/Documents/Enregistres-Instagram          # nouveautés (1 requête)
+uv run reels-urls --dossier ~/Documents/Enregistres-Instagram --tout   # tout relire
+```
+
+Lit les enregistrements Instagram **en direct** avec la session Firefox. Chaque
+reel arrive avec les identifiants de ses collections (`saved_collection_ids`) :
+l'export Meta de ce compte ne les contient pas. Écrit `enregistres.csv`,
+`enregistres.json`, `nouveaux.md`. Le nom d'une collection se déclare une fois
+dans `collections.json` du dossier (`{"1314520064713215": "politique"}`).
+
+La tâche Windows `Reels-Urls-Hebdo` (lundi 09:00, `scripts/recolte-hebdo.sh`) la lance
+seule ; le journal est `recolte.log` dans le dossier. Elle ne tourne que Windows
+allumé et session ouverte. Sur un 429, ce qui a été lu est conservé et la
+commande s'arrête sans insister.
+
 ## Vault thématique (le chemin simple)
 
 Un vault par thème, alimenté par une **collection d'enregistrés** (ex. « politique »).
@@ -237,7 +257,7 @@ Codes de sortie de `reels-ingest` : `0` terminé, `2` fichier d'export introuvab
 uv run pytest
 ```
 
-**144 tests** sur les fonctions pures : extraction et normalisation des liens,
+**153 tests** sur les fonctions pures : extraction et normalisation des liens,
 déduplication native, audit et réparation du vault, boîte de réception,
 échappement YAML, évaluation de fiabilité, maillage et son idempotence. Les étapes
 réseau ne sont pas testées automatiquement — voir

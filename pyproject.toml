@@ -17,6 +17,7 @@ reels-chercher = "reels_graph_md.chercher:main"
 reels-carte = "reels_graph_md.carte:main"
 reels-sync = "reels_graph_md.sync:main"
 reels-statut = "reels_graph_md.statut:main"
+reels-urls = "reels_graph_md.recolte:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
